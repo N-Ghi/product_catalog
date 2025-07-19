@@ -27,13 +27,21 @@ const options = {
             schemas: {
                 Variant: {
                     type: 'object',
-                    required: ['size', 'color', 'price', 'stock'],
+                    required: ['size', 'color', 'price', 'stock', 'status', 'isDiscounted'],
                     properties: {
-                    _id: { type: 'string', example: '64bd...' },
-                    size: { type: 'string', example: '41' },
-                    color: { type: 'string', example: 'Black' },
-                    price: { type: 'number', example: 99.99 },
-                    stock: { type: 'number', example: 25 }
+                        _id: { type: 'string', example: '64bd...' },
+                        size: { type: 'string', example: '41' },
+                        color: { type: 'string', example: 'Black' },
+                        price: { type: 'number', example: 99.99 },
+                        stock: { type: 'number', example: 25 },
+                        isDiscounted: { type: 'boolean', example: false },
+                        discountPrice: { type: 'number', example: 89.99 },
+                        discount: { type: 'number', example: 10 },
+                        status: {
+                            type: 'string',
+                            enum: ['in_stock', 'out_of_stock', 'low_stock'],
+                            example: 'in_stock'
+                        }
                     }
                 },
                 Product: {

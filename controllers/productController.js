@@ -1,6 +1,11 @@
 const Product = require('../models/productModel');
 const Variant = require('../models/variantModel');
 
+// Helper function to process discount data (simplified - discountPrice is read-only)
+const processDiscountData = (variantData) => {
+    // Use the static method from the schema
+    return Variant.processDiscountData(variantData);
+};
 
 // GET my products and their variants
 exports.getMyProducts = async (req, res) => {
@@ -12,7 +17,7 @@ exports.getMyProducts = async (req, res) => {
                     from: 'variants',
                     localField: '_id',
                     foreignField: 'product_id',
-                    as: 'variants'
+                    as: 'variants',
                 }
             }
         ]);
@@ -47,11 +52,20 @@ exports.createProduct = async (req, res) => {
         product.owner = req.user._id;
         await product.save({ session: isReplicaSet ? session : null });
 
-        // 2. Create Variants linked to product_id
-        variantDocs = variants.map(v => ({
-            ...v,
-            product_id: product._id
-        }));
+        // 2. Process and create Variants with discount calculations
+        variantDocs = [];
+        for (let variantData of variants) {
+            try {
+                const processedVariant = processDiscountData(variantData);
+                variantDocs.push({
+                    ...processedVariant,
+                    product_id: product._id
+                });
+            } catch (discountError) {
+                throw new Error(`Variant discount error: ${discountError.message}`);
+            }
+        }
+
         await Variant.insertMany(variantDocs, isReplicaSet ? { session } : {});
 
         if (isReplicaSet) {
@@ -90,9 +104,10 @@ exports.updateProduct = async (req, res) => {
             // Remove existing variants for this product
             await Variant.deleteMany({ product_id: id });
 
-            // Add new variants
-            const variantPromises = variants.map(variant => {
-                return new Variant({...variant, product_id: id}).save();
+            // Process and add new variants with discount calculations
+            const variantPromises = variants.map(variantData => {
+                const processedVariant = processDiscountData(variantData);
+                return new Variant({...processedVariant, product_id: id}).save();
             });
 
             await Promise.all(variantPromises);
@@ -101,7 +116,14 @@ exports.updateProduct = async (req, res) => {
         // Fetch the updated product with variants
         const productWithVariants = await Product.aggregate([
             { $match: { _id: updatedProduct._id } },
-            {$lookup: {from: 'variants', localField: '_id', foreignField: 'product_id', as: 'variants'}}
+            {
+                $lookup: {
+                    from: 'variants',
+                    localField: '_id',
+                    foreignField: 'product_id',
+                    as: 'variants',
+                }
+            }
         ]);
 
         res.status(200).json({message: 'Product updated successfully', product: productWithVariants[0]});
@@ -121,7 +143,12 @@ exports.updateProduct = async (req, res) => {
 exports.updateVariant = async (req, res) => {
     try {
         const { productId, variantId } = req.params;
-        const variantData = req.body;
+        let variantData = req.body;
+
+        // Remove discountPrice from request body if present (read-only field)
+        if (variantData.discountPrice !== undefined) {
+            delete variantData.discountPrice;
+        }
 
         // Verify the product belongs to the user
         const product = await Product.findOne({_id: productId, owner: req.user._id});
@@ -130,16 +157,32 @@ exports.updateVariant = async (req, res) => {
             return res.status(404).json({ message: 'Product not found or unauthorized' });
         }
 
-        // Update the variant
+        // Process discount data (validation only, discountPrice calculated automatically)
+        const processedVariant = processDiscountData({
+            // We need current price if not updating it
+            ...(await Variant.findById(variantId).select('price')).toObject(),
+            ...variantData
+        });
+
+        // Update the variant (discountPrice will be calculated by middleware)
         const updatedVariant = await Variant.findOneAndUpdate(
-            { _id: variantId, product_id: productId }, variantData, { new: true, runValidators: true }
+            { _id: variantId, product_id: productId }, 
+            processedVariant, 
+            { new: true, runValidators: true }
         );
 
         if (!updatedVariant) {
             return res.status(404).json({ message: 'Variant not found' });
         }
 
-        res.status(200).json({ message: 'Variant updated successfully', variant: updatedVariant});
+        res.status(200).json({ 
+            message: 'Variant updated successfully', 
+            variant: {
+                ...updatedVariant.toObject(),
+                finalPrice: updatedVariant.getFinalPrice(),
+                savings: updatedVariant.getDiscountAmount()
+            }
+        });
 
     } catch (err) {
         console.error('Error updating variant:', err);
@@ -149,7 +192,7 @@ exports.updateVariant = async (req, res) => {
             return res.status(400).json({ message: 'Validation error', errors });
         }
 
-        res.status(500).json({ message: 'Internal Server Error' });
+        res.status(400).json({ message: err.message });
     }
 };
 
@@ -157,7 +200,12 @@ exports.updateVariant = async (req, res) => {
 exports.addVariant = async (req, res) => {
     try {
         const { productId } = req.params;
-        const variantData = req.body;
+        let variantData = req.body;
+
+        // Remove discountPrice from request body if present (read-only field)
+        if (variantData.discountPrice !== undefined) {
+            delete variantData.discountPrice;
+        }
 
         // Verify the product belongs to the user
         const product = await Product.findOne({ _id: productId, owner: req.user._id });
@@ -166,12 +214,22 @@ exports.addVariant = async (req, res) => {
             return res.status(404).json({ message: 'Product not found or unauthorized' });
         }
 
-        // Create new variant
-        const newVariant = new Variant({ ...variantData, product_id: productId });
+        // Process discount data
+        const processedVariant = processDiscountData(variantData);
+
+        // Create new variant (discountPrice will be calculated by pre-save middleware)
+        const newVariant = new Variant({ ...processedVariant, product_id: productId });
 
         await newVariant.save();
 
-        res.status(201).json({ message: 'Variant added successfully', variant: newVariant });
+        res.status(201).json({ 
+            message: 'Variant added successfully', 
+            variant: {
+                ...newVariant.toObject(),
+                finalPrice: newVariant.getFinalPrice(),
+                savings: newVariant.getDiscountAmount()
+            }
+        });
 
     } catch (err) {
         console.error('Error adding variant:', err);
@@ -184,7 +242,7 @@ exports.addVariant = async (req, res) => {
             });
         }
 
-        res.status(500).json({ message: 'Internal Server Error' });
+        res.status(400).json({ message: err.message });
     }
 };
 

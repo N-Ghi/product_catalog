@@ -385,7 +385,7 @@ router.delete('/categories/:id', protect, categoryController.deleteCategory);
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of user's products with associated variants
+ *         description: List of user's products with associated variants including discount calculations
  *         content:
  *           application/json:
  *             schema:
@@ -403,6 +403,8 @@ router.delete('/categories/:id', protect, categoryController.deleteCategory);
  *                     type: string
  *                   category_id:
  *                     type: string
+ *                   owner:
+ *                     type: string
  *                   variants:
  *                     type: array
  *                     items:
@@ -410,14 +412,23 @@ router.delete('/categories/:id', protect, categoryController.deleteCategory);
  *                       properties:
  *                         _id:
  *                           type: string
+ *                         product_id:
+ *                           type: string
  *                         size:
  *                           type: string
  *                         color:
  *                           type: string
  *                         price:
  *                           type: number
+ *                           description: Original price
  *                         stock:
  *                           type: number
+ *                         isDiscounted:
+ *                           type: boolean
+ *                           description: Whether this variant has a discount applied
+ *                         discountPrice:
+ *                           type: number
+ *                           description: Calculated discount price (read-only)
  *       401:
  *         description: Unauthorized – Authentication token missing or invalid
  *         content:
@@ -455,7 +466,7 @@ router.get('/products/mine', protect, productController.getMyProducts);
  * @swagger
  * /products:
  *   post:
- *     summary: Create a new product with variants
+ *     summary: Create a new product with variants (includes automatic discount calculations)
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -506,9 +517,14 @@ router.get('/products/mine', protect, productController.getMyProducts);
  *                     stock:
  *                       type: integer
  *                       example: 50
+ *                     isDiscounted:
+ *                       type: boolean
+ *                       example: true
+ *                       description: Optional - whether discount should be applied
+ *                   note: "discountPrice is calculated automatically and should not be included in request"
  *     responses:
  *       201:
- *         description: Product created successfully with variants
+ *         description: Product created successfully with variants and discount calculations
  *         content:
  *           application/json:
  *             schema:
@@ -519,9 +535,27 @@ router.get('/products/mine', protect, productController.getMyProducts);
  *                 variants:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/Variant'
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       product_id:
+ *                         type: string
+ *                       size:
+ *                         type: string
+ *                       color:
+ *                         type: string
+ *                       price:
+ *                         type: number
+ *                       stock:
+ *                         type: integer
+ *                       isDiscounted:
+ *                         type: boolean
+ *                       discountPrice:
+ *                         type: number
+ *                         description: Calculated discount price
  *       400:
- *         description: Bad request - validation failed or transaction aborted
+ *         description: Bad request - validation failed, transaction aborted, or discount calculation error
  *         content:
  *           application/json:
  *             schema:
@@ -529,7 +563,7 @@ router.get('/products/mine', protect, productController.getMyProducts);
  *               properties:
  *                 error:
  *                   type: string
- *                   example: "Validation failed: name is required"
+ *                   example: "Variant discount error: Invalid discount configuration"
  *       401:
  *         description: Unauthorized - missing or invalid authentication token
  *         content:
@@ -557,7 +591,7 @@ router.post('/products', protect, productController.createProduct);
 * @swagger
 * /products/{id}:
 *   put:
-*     summary: Update a product and all its variants
+*     summary: Update a product and all its variants (replaces all variants with new ones)
 *     tags: [Products]
 *     security:
 *       - bearerAuth: []
@@ -589,6 +623,7 @@ router.post('/products', protect, productController.createProduct);
 *                 example: "64f1c4bcf1234567890abcd1"
 *               variants:
 *                 type: array
+*                 description: Optional - if provided, all existing variants will be deleted and replaced
 *                 items:
 *                   type: object
 *                   properties:
@@ -604,9 +639,13 @@ router.post('/products', protect, productController.createProduct);
 *                     stock:
 *                       type: integer
 *                       example: 40
+*                     isDiscounted:
+*                       type: boolean
+*                       example: true
+*                   note: "discountPrice is calculated automatically and should not be included"
 *     responses:
 *       200:
-*         description: Product updated successfully along with variants
+*         description: Product updated successfully along with variants including discount calculations
 *         content:
 *           application/json:
 *             schema:
@@ -628,12 +667,16 @@ router.post('/products', protect, productController.createProduct);
 *                       type: string
 *                     category_id:
 *                       type: string
+*                     owner:
+*                       type: string
 *                     variants:
 *                       type: array
 *                       items:
 *                         type: object
 *                         properties:
 *                           _id:
+*                             type: string
+*                           product_id:
 *                             type: string
 *                           size:
 *                             type: string
@@ -643,6 +686,10 @@ router.post('/products', protect, productController.createProduct);
 *                             type: number
 *                           stock:
 *                             type: integer
+*                           isDiscounted:
+*                             type: boolean
+*                           discountPrice:
+*                             type: number
 *       400:
 *         description: Validation error on product or variant fields
 *         content:
@@ -695,7 +742,7 @@ router.put('/products/:id', protect, productController.updateProduct);
  * @swagger
  * /products/{productId}/variants/{variantId}:
  *   put:
- *     summary: Update a specific variant of a product
+ *     summary: Update a specific variant of a product (discount calculations applied automatically)
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -731,9 +778,13 @@ router.put('/products/:id', protect, productController.updateProduct);
  *               stock:
  *                 type: integer
  *                 example: 30
+ *               isDiscounted:
+ *                 type: boolean
+ *                 example: true
+ *             note: "discountPrice is read-only and calculated automatically. It will be removed from request if present."
  *     responses:
  *       200:
- *         description: Variant updated successfully
+ *         description: Variant updated successfully with discount calculations
  *         content:
  *           application/json:
  *             schema:
@@ -757,8 +808,19 @@ router.put('/products/:id', protect, productController.updateProduct);
  *                       type: number
  *                     stock:
  *                       type: integer
+ *                     isDiscounted:
+ *                       type: boolean
+ *                     discountPrice:
+ *                       type: number
+ *                       description: Calculated discount price
+ *                     finalPrice:
+ *                       type: number
+ *                       description: Final price after discount (computed)
+ *                     savings:
+ *                       type: number
+ *                       description: Amount saved due to discount (computed)
  *       400:
- *         description: Validation error on variant data
+ *         description: Validation error on variant data or discount calculation error
  *         content:
  *           application/json:
  *             schema:
@@ -766,7 +828,7 @@ router.put('/products/:id', protect, productController.updateProduct);
  *               properties:
  *                 message:
  *                   type: string
- *                   example: Validation error
+ *                   example: Invalid discount configuration
  *                 errors:
  *                   type: array
  *                   items:
@@ -809,7 +871,7 @@ router.put('/products/:productId/variants/:variantId', protect, productControlle
  * @swagger
  * /products/{productId}/variants:
  *   post:
- *     summary: Add a new variant to an existing product
+ *     summary: Add a new variant to an existing product (discount calculations applied automatically)
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -844,9 +906,14 @@ router.put('/products/:productId/variants/:variantId', protect, productControlle
  *               stock:
  *                 type: integer
  *                 example: 20
+ *               isDiscounted:
+ *                 type: boolean
+ *                 example: false
+ *                 description: Optional - whether discount should be applied
+ *             note: "discountPrice is read-only and calculated automatically. It will be removed from request if present."
  *     responses:
  *       201:
- *         description: Variant added successfully
+ *         description: Variant added successfully with discount calculations
  *         content:
  *           application/json:
  *             schema:
@@ -870,8 +937,19 @@ router.put('/products/:productId/variants/:variantId', protect, productControlle
  *                       type: number
  *                     stock:
  *                       type: integer
+ *                     isDiscounted:
+ *                       type: boolean
+ *                     discountPrice:
+ *                       type: number
+ *                       description: Calculated discount price
+ *                     finalPrice:
+ *                       type: number
+ *                       description: Final price after discount (computed)
+ *                     savings:
+ *                       type: number
+ *                       description: Amount saved due to discount (computed)
  *       400:
- *         description: Validation error on variant data
+ *         description: Validation error on variant data or discount calculation error
  *         content:
  *           application/json:
  *             schema:
@@ -965,6 +1043,10 @@ router.post('/products/:productId/variants', protect, productController.addVaria
  *                       type: number
  *                     stock:
  *                       type: integer
+ *                     isDiscounted:
+ *                       type: boolean
+ *                     discountPrice:
+ *                       type: number
  *       401:
  *         description: Unauthorized - missing or invalid authentication token
  *         content:
@@ -1002,7 +1084,7 @@ router.delete('/products/:productId/variants/:variantId', protect, productContro
  * @swagger
  * /products/{id}:
  *   delete:
- *     summary: Delete a product and its variants
+ *     summary: Delete a product and all its variants
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
