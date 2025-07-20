@@ -42,7 +42,7 @@ Your API should support the full suite of CRUD operations, robust search and fil
     node app.js
     ```
 
-    ==**To avoid having to always restart your node server when you make changes, do the following:*==
+    **To avoid having to always restart your node server when you make changes, do the following:**
 
     ```bash
     # Install nodemon locally
@@ -72,4 +72,10 @@ This implementation assumes the following:
 
 ## API Documentation
 
-A comprehensive interactive API can be found by navigating to ==**/api-docs/**== after running the project.
+A comprehensive interactive API can be found by navigating to **/api-docs/** after running the project.
+
+
+## Walkthrough Video
+
+- [Youtube Video](https://youtu.be/yuBkRhhaxHc)
+- [Google Drive](https://drive.google.com/file/d/1rD6aBCpiQKWZDWWL6CSaNcZ7JQFujsa0/view?usp=sharing)
